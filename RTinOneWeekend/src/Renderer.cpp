@@ -1,3 +1,5 @@
+#pragma once
+
 #include "Renderer.h"
 
 namespace Utils {
@@ -6,19 +8,9 @@ namespace Utils {
 			return glm::sqrt(f);
 		}
 		return 0;
-	}
+	}	
 
 	uint32_t ConvertToRGBA(const glm::vec4& color) {
-		//uint8_t r = color.r * 255.0f;
-		//uint8_t g = color.g * 255.0f;
-		//uint8_t b = color.b * 255.0f;
-		//uint8_t a = color.a * 255.0f;
-
-		//static const Interval intensity(0.0f, 0.999f);
-		//uint8_t r = intensity.Clamp(color.r) * 255.0f;
-		//uint8_t g = intensity.Clamp(color.g) * 255.0f;
-		//uint8_t b = intensity.Clamp(color.b) * 255.0f;
-
 		uint8_t r = static_cast<uint8_t>(glm::clamp(linearToGamma(color.r), 0.0f, 0.999f) * 255.0f);
 		uint8_t g = static_cast<uint8_t>(glm::clamp(linearToGamma(color.g), 0.0f, 0.999f) * 255.0f);
 		uint8_t b = static_cast<uint8_t>(glm::clamp(linearToGamma(color.b), 0.0f, 0.999f) * 255.0f);
@@ -39,6 +31,7 @@ namespace Utils {
 	//	return res;
 	//}
 
+	// Optimised random funcs
 	static uint32_t PCG_Hash(uint32_t input) {
 		uint32_t state = input * 747796405u + 2891336453u;
 		//uint32_t word = ((state >> (state >> 28u) + 4u) ^ state) * 277803737u;
@@ -55,6 +48,7 @@ namespace Utils {
 										RandomFloat(seed) * 2.0f - 1.0f));
 	}
 
+	// Non-optimised random funcs
 	inline glm::vec3 RandomInUnitSphere() {
 		while (true) {
 			glm::vec3 p = Walnut::Random::Vec3(-1.0f, 1.0f);
@@ -70,6 +64,15 @@ namespace Utils {
 		}
 		else {
 			return -onUnitSphere;
+		}
+	}
+
+	inline glm::vec3 randomInUnitDisk() {
+		while (true) {
+			glm::vec3 p = Walnut::Random::Vec3(-1.0f, 1.0f);
+			p[2] = 0;
+			if (glm::dot(p, p) < 1)
+				return p;
 		}
 	}
 }
@@ -107,8 +110,8 @@ void Renderer::Render(const Camera& camera, const HittableList& world)
 	m_World = &world;
 	m_PixelSamplesScale = 1.0f / m_SamplesPerPixel;
 
+	/*
 	//float aspectRatio = m_FinalImage->GetWidth() / m_FinalImage->GetHeight();
-
 	//float imgHeight = m_FinalImage->GetHeight();
 	float viewHeight = 2.0f;
 
@@ -132,6 +135,19 @@ void Renderer::Render(const Camera& camera, const HittableList& world)
 		- glm::vec3(0.0f, 0.0f, focalLenght) - viewportU / 2.0f - viewportV / 2.0f;
 	auto pixel00_loc = viewport_upper_left + 0.5f * (pixel_delta_u + pixel_delta_v);
 	m_pixel00_loc = pixel00_loc;
+	*/
+
+	glm::vec3 lookFrom = m_ActiveCamera->GetPosition();
+	glm::vec3 lookAt = m_ActiveCamera->GetPosition();
+	lookAt[2] = lookAt[2] - 1;
+
+	glm::vec3 w = glm::normalize(lookFrom - lookAt);
+	glm::vec3 u = glm::normalize(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), w));
+	glm::vec3 v = glm::cross(w, u);
+
+	auto defocusRadius = m_Settings.FocusDist * glm::tan(glm::radians(m_Settings.DefocusAngle / 2));
+	m_DefocusDiskU = u * defocusRadius;
+	m_DefocusDiskV = v * defocusRadius;
 
 	if (m_FrameIndex == 1) {
 		memset(m_AccumilationData, 0, m_FinalImage->GetWidth() * m_FinalImage->GetHeight() * sizeof(glm::vec4));
@@ -145,10 +161,10 @@ void Renderer::Render(const Camera& camera, const HittableList& world)
 				[&](uint32_t x)
 					{
 						glm::vec3 pixel_color(0.0f);
-						uint32_t seed = x + y * m_FinalImage->GetWidth();
+						//uint32_t seed = x + y * m_FinalImage->GetWidth();
 						for (int i = 0; i < m_SamplesPerPixel; i++) {
 							Ray r = GetRay(x, y);							
-							pixel_color += RayColor(r, m_Depth, seed);
+							pixel_color += RayColor(r, m_Depth);
 						}
 
 						m_ImageData[x + y * m_FinalImage->GetWidth()] = Utils::ConvertToRGBA(glm::vec4(pixel_color * m_PixelSamplesScale, 1.0f));
@@ -172,14 +188,13 @@ void Renderer::Render(const Camera& camera, const HittableList& world)
 						//auto ray_direction = pixel_center - cameraCenter; 
 
 						/*	Cherno method, movable camera	*/
-						//glm::vec3 pixel_center = pixel00_loc + ((float)x * pixel_delta_u) + ((float)y * pixel_delta_v);
-
-						glm::vec3 ray_origin = m_ActiveCamera->GetPosition();
+						//glm::vec3 ray_origin = m_ActiveCamera->GetPosition();
+						glm::vec3 ray_origin = (m_Settings.DefocusAngle <= 0) ? m_ActiveCamera->GetPosition() : DefocusDiskSample();
 						glm::vec3 ray_direction = m_ActiveCamera->GetRayDirections()[x + y * m_FinalImage->GetWidth()];
 
 						Ray r(ray_origin, ray_direction);
-						uint32_t seed = x + y * m_FinalImage->GetWidth();
-						glm::vec3 pixel_color = RayColor(r, m_Depth, seed);
+						//uint32_t seed = x + y * m_FinalImage->GetWidth();
+						glm::vec3 pixel_color = RayColor(r, m_Depth);
 						//m_ImageData[x + y * m_FinalImage->GetWidth()] = Utils::ConvertToRGB(pixel_color);
 
 						m_AccumilationData[x+y*m_FinalImage->GetWidth()] += glm::vec4(pixel_color, 1.0f);
@@ -239,7 +254,7 @@ float Renderer::HitSphere(const glm::vec3& center, float radius, const Ray& ray)
 	}
 }
 
-glm::vec3 Renderer::RayColor(const Ray& r, int depth, uint32_t seed)
+glm::vec3 Renderer::RayColor(const Ray& r, int depth)
 {
 	//float t = HitSphere(glm::vec3(0.0f, 0.0f, -1.0f), 0.5f, r);
 	//if (t > 0.0f) {
@@ -255,6 +270,7 @@ glm::vec3 Renderer::RayColor(const Ray& r, int depth, uint32_t seed)
 	HitRecord rec;
 
 	if (m_World->Hit(r, Interval(0.0001f, FLT_MAX), rec)) {
+		/*
 		glm::vec3 direction;
 		if (m_Settings.isOtpimisedRandom) {
 			seed *= m_FrameIndex;
@@ -267,6 +283,16 @@ glm::vec3 Renderer::RayColor(const Ray& r, int depth, uint32_t seed)
 		}
 		direction += rec.Normal;
 		return m_Settings.Gamma * RayColor(Ray(rec.p, direction), depth - 1, seed);
+		*/
+
+		Ray scattered;
+		glm::vec3 attenuation;
+		//seed *= m_FrameIndex;
+		//seed += depth;
+		if (rec.material->Scatter(r, rec, attenuation, scattered))
+			return attenuation * RayColor(scattered, depth - 1);
+
+		return glm::vec3(0.0f);
 	}
 
 	float a = 0.5f * (glm::normalize(r.Direction()).y + 1.0f);
@@ -294,4 +320,10 @@ Ray Renderer::GetRay(int x, int y) const
 glm::vec3 Renderer::SampleSquare() const
 {
 	return Walnut::Random::Vec3(-0.5f, 0.5f);
+}
+
+glm::vec3 Renderer::DefocusDiskSample() const
+{
+	glm::vec3 p = Utils::randomInUnitDisk();
+	return m_ActiveCamera->GetPosition() + (p[0] * m_DefocusDiskU) + (p[1] * m_DefocusDiskV);
 }

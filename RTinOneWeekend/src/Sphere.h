@@ -1,10 +1,11 @@
 #pragma once
 
-#include "Hittable.h"
+#include "Utils.h"
 
 class Sphere : public Hittable {
 public:
-	Sphere(const glm::vec3& center, float radius) : m_Center(center), m_Radius((float)fmax(0.0, radius)) {}
+	Sphere(const glm::vec3& center, float radius, Material* material) 
+		: m_Center(center), m_Radius((float)fmax(0.0, radius)), m_Material(material) {}
 
 	bool Hit(const Ray& ray, Interval rayT, HitRecord& rec) const override {
 		glm::vec3 oc = m_Center - ray.Origin();
@@ -17,7 +18,7 @@ public:
 			return false;
 		}
 
-		float sqrtDisc = sqrt(discriminant);
+		float sqrtDisc = glm::sqrt(discriminant);
 
 		float root = (h - sqrtDisc) / a;
 		if (!rayT.Surrounds(root)) {
@@ -26,6 +27,7 @@ public:
 				return false;
 		}
 
+		rec.material = m_Material;
 		rec.t = root;
 		rec.p = ray.At(rec.t);
 		glm::vec3 outNormal = (rec.p - m_Center) / m_Radius;
@@ -37,4 +39,5 @@ public:
 private:
 	glm::vec3 m_Center;
 	float m_Radius;
+	Material* m_Material = nullptr;
 };
